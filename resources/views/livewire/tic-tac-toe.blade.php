@@ -1,35 +1,33 @@
 <div>
-    <h1 class="text-center text-2xl font-bold mb-4">Tic Tac Toe</h1>
+    <h1 class="text-center text-2xl font-bold mb-2">Tic Tac Toe</h1>
     {{-- @dump($gameMode, $difficulty) --}}
     @if ($difficulty)
-    <div class="mode grid place-items-center mb-4">
-        <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-            wire:click="setGameMode('cpu')">
-            Change Difficulty
-        </button>
-    </div>
-    <div class="mode grid place-items-center mb-4">
-        <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-            wire:click="setGameMode('multiplayer')">
-            Multiplayer Mode
-        </button>
-    </div>
-    @elseif($gameMode==='multiplayer')
-    <div class="mode grid place-items-center mb-4">
-        <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-            wire:click="setGameMode('cpu')">
-            Cpu Mode
-        </button>
-    </div>
-    {{-- @elseif($gameMode==='cpu')
+        <div class="mode grid place-items-center mb-4">
+            <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" wire:click="setGameMode('cpu')">
+                Change Difficulty
+            </button>
+        </div>
+        <div class="mode grid place-items-center mb-2">
+            <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                wire:click="setGameMode('multiplayer')">
+                Multiplayer Mode
+            </button>
+        </div>
+    @elseif($gameMode === 'multiplayer')
+        <div class="mode grid place-items-center mb-2">
+            <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" wire:click="setGameMode('cpu')">
+                Cpu Mode
+            </button>
+        </div>
+        {{-- @elseif($gameMode==='cpu')
     <div class="mode grid place-items-center mb-4">
         <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
             wire:click="setGameMode('multiplayer')">
             Multiplayer Mode
         </button>
     </div> --}}
-</button>
-@endif
+        </button>
+    @endif
     {{-- Game Mode Selection --}}
     @if (!$gameMode)
         <div class="mode flex justify-center space-x-4 mb-4">
@@ -46,7 +44,7 @@
 
     {{-- Difficulty Selection (Only for CPU mode) --}}
     @if ($gameMode === 'cpu' && !$difficulty)
-        <div class="difficulty flex justify-center space-x-4 mb-4">
+        <div class="difficulty flex justify-center space-x-4 mb-2">
             <button class="mt-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
                 wire:click="setDifficulty('easy')">
                 Easy
@@ -60,18 +58,17 @@
                 Hard
             </button>
         </div>
-        @endif
-      
+    @endif
+
 
     @if ($difficulty)
         <div>
             <div class="text-center"> Difficulty:{{ strtoupper($difficulty) }}</div>
         </div>
-       
     @endif
 
     {{-- Game Status --}}
-    <div class="status mb-4 text-center">
+    <div class="status mb-3 text-center">
         @if ($gameOver)
             @if ($isWinner)
                 <div class="text-xl font-bold text-green-600">
@@ -90,7 +87,7 @@
                 @if ($gameMode === 'cpu')
                     <span
                         class="font-bold text-red-600">{{ $currentPlayer === 'O' ? 'CPU\'s Turn' : 'Your Turn' }}</span>
-                @elseif($gameMode ==='multiplayer')
+                @elseif($gameMode === 'multiplayer')
                     Current Player: <span class="font-bold">{{ $currentPlayer }}</span>
                 @endif
             </div>
@@ -112,6 +109,11 @@
                     @endforeach
                 </div>
             @endforeach
+        </div>
+        <div class="mode grid place-items-center mt-3">
+            <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" wire:click="resetGame()">
+                Reset Game
+            </button>
         </div>
 </div>
 @endif

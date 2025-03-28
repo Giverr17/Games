@@ -131,7 +131,7 @@ class TicTacToe extends Component
         }
         $this->checkWinner();
         $this->currentPlayer = 'X';
-        // $this->dispatch('gameUpdated');
+        $this->dispatch('gameUpdated');
     }
 
 
