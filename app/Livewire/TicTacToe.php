@@ -192,58 +192,80 @@ class TicTacToe extends Component
 
     public function hard()
     {
-        //add minmax AI alorightm
-
         $bestScore = -INF;
         $bestMove = null;
-
-        for ($row = 0; $row < 3; $row++) {
-            for ($col = 0; $col < 3; $col++) {
-                if ($this->board[$row][$col] === '') {
-                    $this->board[$row][$col] = 'O';
-                    $score = $this->minimax(0, false, -INF, INF);
-
-                    //undo the move
-                    $this->board[$row][$col] = '';
-
-                    //update best move if score is better
-                    if ($score > $bestScore) {
-                        $bestScore = $score;
-                        $bestMove = ['row' => $row, 'col' => $col];
-                    }
-                }
+        $secondBestMove = null;
+    
+        // Step 1: Check for immediate winning move (AI's turn)
+        foreach ($this->getEmptyCells() as $cell) {
+            $row = $cell['row'];
+            $col = $cell['col'];
+            $this->board[$row][$col] = 'O';
+            if ($this->checkGameStatus() === 10) { // AI wins
+                return $this->board[$row][$col] = 'O';
+            }
+            $this->board[$row][$col] = ''; // Undo
+        }
+    
+        // Step 2: Check for immediate blocking move (Player's turn)
+        foreach ($this->getEmptyCells() as $cell) {
+            $row = $cell['row'];
+            $col = $cell['col'];
+            $this->board[$row][$col] = 'X';
+            if ($this->checkGameStatus() === -10) { // Player would win
+                return $this->board[$row][$col] = 'O'; // BLOCK immediately
+            }
+            $this->board[$row][$col] = ''; // Undo
+        }
+    
+        // Step 3: Normal Minimax Evaluation
+        foreach ($this->getEmptyCells() as $cell) {
+            $row = $cell['row'];
+            $col = $cell['col'];
+            $this->board[$row][$col] = 'O';
+            $score = $this->minimax(0, false, -INF, INF);
+            $this->board[$row][$col] = '';
+    
+            if ($score > $bestScore) {
+                $secondBestMove = $bestMove;
+                $bestScore = $score;
+                $bestMove = ['row' => $row, 'col' => $col];
             }
         }
-
+    
+        // Step 4: Randomness (20% chance to pick second-best move)
+        if ($secondBestMove !== null && rand(0, 100) < 20) {
+            $bestMove = $secondBestMove;
+        }
+    
+        // Step 5: Execute the best move
         if ($bestMove) {
-            //claim the move as the best move
             $this->board[$bestMove['row']][$bestMove['col']] = 'O';
         }
     }
+    
 
-    private function checkGameStatus()
-    {
-        if ($this->checkWinner('O')) {
-            return 10;
-        }
-        if ($this->checkWinner('X')) {
-            return -10;
-        }
-
-        $isDraw = true;
-        for ($row = 0; $row < 3; $row++) {
-            for ($col = 0; $col < 3; $col++) {
-                if ($this->board[$row][$col] === '') {
-                    $isDraw = false;
-                    break 2;
+    public function getEmptyCells(){
+        $emptyCells=[];
+        for($row=0;$row<3;$row++){
+            for($col=0;$col<3;$col++){
+                if($this->board[$row][$col]===''){
+                    $emptyCells[]=['row'=>$row,'col'=>$col];
                 }
             }
         }
-        return $isDraw ? 0 : null;
+        shuffle($emptyCells);
+        return $emptyCells;
     }
 
     private function minimax($depth, $isMaximizing, $alpha, $beta)
     {
+        $max_depth = 3;
+
+        if ($depth >= $max_depth) {
+            return $this->evaluateBoard();
+        }
+
         //To check winner
         $result = $this->checkGameStatus();
 
@@ -299,6 +321,37 @@ class TicTacToe extends Component
             }
             return $bestScore;
         }
+    }
+
+    private function evaluateBoard(){
+        if($this->checkGameStatus()===10){
+            return 10;
+        }
+        if($this->checkGameStatus()===-10){
+            return -10;
+        }
+        return 0;
+    }
+
+    private function checkGameStatus()
+    {
+        if ($this->checkWinner('O')) {
+            return 10;
+        }
+        if ($this->checkWinner('X')) {
+            return -10;
+        }
+
+        $isDraw = true;
+        for ($row = 0; $row < 3; $row++) {
+            for ($col = 0; $col < 3; $col++) {
+                if ($this->board[$row][$col] === '') {
+                    $isDraw = false;
+                    break 2;
+                }
+            }
+        }
+        return $isDraw ? 0 : null;
     }
 
 
