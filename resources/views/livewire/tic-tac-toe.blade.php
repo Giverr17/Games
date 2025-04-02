@@ -1,36 +1,48 @@
 <div>
     <h1 class="text-center text-2xl font-bold mb-2">Tic Tac Toe</h1>
-    {{-- @dump($gameMode, $difficulty) --}}
-    @if ($difficulty)
-        <div class="mode grid place-items-center mb-4">
-            <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" wire:click="setGameMode('cpu')">
-                Change Difficulty
-            </button>
+    <div class="p-2 bg-gray-800 text-white rounded-lg text-sm w-full max-w-xs mx-auto">
+        <h2 class="text-lg font-bold text-center">Scoreboard</h2>
+
+        <div class="grid grid-cols-2 gap-2 text-center mt-2">
+            <p>🏆 Player: <span class="font-semibold">{{ $playerWins }}</span></p>
+            <p>🤖 AI: <span class="font-semibold">{{ $aiWins }}</span></p>
+            <p>🎯 Draws: <span class="font-semibold">{{ $draws }}</span></p>
+            <p>🔥 Streak: <span class="font-semibold">{{ $playerStreak }}</span></p>
         </div>
-        <div class="mode grid place-items-center mb-2">
-            <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                wire:click="setGameMode('multiplayer')">
-                Multiplayer Mode
-            </button>
-        </div>
-    @elseif($gameMode === 'multiplayer')
-        <div class="mode grid place-items-center mb-2">
-            <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" wire:click="setGameMode('cpu')">
-                Cpu Mode
-            </button>
-        </div>
-        {{-- @elseif($gameMode==='cpu')
-    <div class="mode grid place-items-center mb-4">
-        <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-            wire:click="setGameMode('multiplayer')">
-            Multiplayer Mode
-        </button>
-    </div> --}}
-        </button>
-    @endif
+
+        @if ($playerStreak >= 3)
+            <p class="text-yellow-400 text-center mt-1 animate-pulse">🔥 Winning Streak!</p>
+        @endif
+
+        <button wire:click="resetScores()" class="mt-3 bg-red-500 px-2 py-1 text-xs rounded w-full">Reset</button>
+    </div>
+
+    <div class="mode flex justify-center space-x-4 mb-4">
+        @if ($difficulty)
+            <div class="mode grid place-items-center mb-2">
+                <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    wire:click="setGameMode('cpu')">
+                    Change Difficulty
+                </button>
+            </div>
+            <div class="mode grid place-items-center mb-2">
+                <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    wire:click="setGameMode('multiplayer')">
+                    Multiplayer Mode
+                </button>
+            </div>
+        @elseif($gameMode === 'multiplayer')
+            <div class="mode grid place-items-center mb-2">
+                <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    wire:click="setGameMode('cpu')">
+                    Cpu Mode
+                </button>
+            </div>
+        @endif
+    </div>
     {{-- Game Mode Selection --}}
     @if (!$gameMode)
-        <div class="mode flex justify-center space-x-4 mb-4">
+        <div class="mode flex justify-center space-x-4 mb-1">
             <button class="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
                 wire:click="setGameMode('multiplayer')">
                 Two Players
@@ -63,7 +75,7 @@
 
     @if ($difficulty)
         <div>
-            <div class="text-center"> Difficulty:{{ strtoupper($difficulty) }}</div>
+            <div class="text-center text-xl "> Difficulty:{{ strtoupper($difficulty) }}</div>
         </div>
     @endif
 
@@ -111,7 +123,7 @@
             @endforeach
         </div>
         <div class="mode grid place-items-center mt-3">
-            <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" wire:click="resetGame()">
+            <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" wire:click="resetGame">
                 Reset Game
             </button>
         </div>

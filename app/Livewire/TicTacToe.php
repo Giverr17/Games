@@ -19,11 +19,30 @@ class TicTacToe extends Component
     public $difficulty = null;
     public $gameMode = null;
     protected $listeners = ['gameUpdated' => '$refresh'];
+    public $playerWins, $aiWins, $draws, $playerStreak;
 
 
     public function mount()
     {
-        $this->resetGame();
+        // Initialize session values if they don't exist
+        if (!session()->has('playerWins')) {
+            session()->put('playerWins', 0);
+        }
+        if (!session()->has('aiWins')) {
+            session()->put('aiWins', 0);
+        }
+        if (!session()->has('draws')) {
+            session()->put('draws', 0);
+        }
+        if (!session()->has('playerStreak')) {
+            session()->put('playerStreak', 0);
+        }
+
+        // Get the values from session
+        $this->playerWins = (int)session('playerWins', 0);
+        $this->aiWins = (int)session('aiWins', 0);
+        $this->draws = (int)session('draws', 0);
+        $this->playerStreak = (int)session('playerStreak', 0);
     }
 
     public function resetGame()
@@ -46,12 +65,6 @@ class TicTacToe extends Component
         $this->gameMode = $currentMode;
     }
 
-    // public function checkCpuTurn()
-    // {
-    //     if ($this->gameMode === 'cpu' && $this->currentPlayer === 'O' && !$this->gameOver) {
-    //         $this->cpuMove();
-    //     }
-    // }
     public function setGameMode($mode)
     {
         $this->gameMode = $mode;
@@ -60,6 +73,7 @@ class TicTacToe extends Component
         $this->dispatch('gameUpdated');
         $this->resetGame();
     }
+
     public function setDifficulty($difficulty)
     {
         if ($this->gameMode === 'cpu') {
@@ -67,76 +81,159 @@ class TicTacToe extends Component
             $this->resetGame();
         }
     }
+
     public function makeMove($row, $col)
     {
+        // Don't allow moves if game is over or cell is already filled
         if ($this->gameOver || $this->board[$row][$col] !== '') {
             return;
         }
+
+        // Player makes a move
         $this->board[$row][$col] = $this->currentPlayer;
 
-        $this->checkWinner();
-
-        //if the game is not over,switch the player
+        // Check if the game is over after player's move
+        $this->checkGameStatus();
+        
+        // If game is not over, process next steps
         if (!$this->gameOver) {
-
-            // If game is not over and in CPU mode
-            if ($this->gameMode === 'cpu') {
-                // Switch to CPU player if it's not already the CPU's turn
-
+            if ($this->gameMode === 'cpu' && $this->difficulty) {
+                // In CPU mode, let AI make a move
                 $this->currentPlayer = 'O';
-                if ($this->difficulty) {
-                    $this->cpuMove();
+                $this->cpuMove();
+                
+                // After AI moves, check game status again
+                $this->checkGameStatus();
+                
+                // Switch back to player X for next turn if game is still ongoing
+                if (!$this->gameOver) {
+                    $this->currentPlayer = 'X';
                 }
             } else {
                 // For multiplayer, just switch players
-                $this->currentPlayer = $this->currentPlayer === 'X' ? 'O' : 'X';
-            }
-
-
-            // check for draw
-            //assume the game is already drawn and keep checking until false
-            $isDraw = true;
-            foreach ($this->board as $row) {
-                foreach ($row as $cell) {
-                    if ($cell == '') {
-                        $isDraw = false;
-                        break 2;
-                    }
-                }
-            }
-            if ($isDraw) {
-                $this->gameOver = true;
-                $this->isDraw = true;
-                // $this->resetGame();
-                $this->dispatch('gameUpdated');
+                $this->currentPlayer = ($this->currentPlayer === 'X') ? 'O' : 'X';
             }
         }
-    }
 
-    public function cpuMove()
-    {
-        if (!$this->difficulty) {
-            return;
-        }
-        switch ($this->difficulty) {
-            case 'easy':
-                $this->easy();
-                break;
-            case 'medium':
-                $this->medium();
-                break;
-            case 'hard':
-                $this->hard();
-                break;
-        }
-        $this->checkWinner();
-        $this->currentPlayer = 'X';
         $this->dispatch('gameUpdated');
     }
+    
+    public function cpuMove()
+    {
+        if (!$this->difficulty || $this->gameOver) {
+            return;
+        }
+        
+        switch ($this->difficulty) {
+            case 'easy':
+                $this->makeEasyMove();
+                break;
+            case 'medium':
+                $this->makeMediumMove();
+                break;
+            case 'hard':
+                $this->makeHardMove();
+                break;
+        }
+    }
 
+    // Easy AI - completely random moves
+    private function makeEasyMove()
+    {
+        $emptyCells = $this->getEmptyCells();
+        if (!empty($emptyCells)) {
+            $randomMove = $emptyCells[array_rand($emptyCells)];
+            $this->board[$randomMove['row']][$randomMove['col']] = 'O';
+        }
+    }
 
+    // Medium AI - prioritizes winning, blocking, center, corners
+    private function makeMediumMove()
+    {
+        // Try to win
+        $winMove = $this->findWinningMove('O');
+        if ($winMove) {
+            $this->board[$winMove['row']][$winMove['col']] = 'O';
+            return;
+        }
 
-    public function easy()
+        // Block player's winning move
+        $blockMove = $this->findWinningMove('X');
+        if ($blockMove) {
+            $this->board[$blockMove['row']][$blockMove['col']] = 'O';
+            return;
+        }
+
+        // Take center if available
+        if ($this->board[1][1] === '') {
+            $this->board[1][1] = 'O';
+            return;
+        }
+
+        // Take corners if available
+        $corners = [[0, 0], [0, 2], [2, 0], [2, 2]];
+        shuffle($corners);
+        foreach ($corners as $corner) {
+            if ($this->board[$corner[0]][$corner[1]] === '') {
+                $this->board[$corner[0]][$corner[1]] = 'O';
+                return;
+            }
+        }
+        
+        // If no strategic move is available, make a random move
+        $this->makeEasyMove();
+    }
+
+    // Hard AI - uses minimax with alpha-beta pruning
+    private function makeHardMove()
+    {
+        // First check for winning move (priority 1)
+        $winMove = $this->findWinningMove('O');
+        if ($winMove) {
+            $this->board[$winMove['row']][$winMove['col']] = 'O';
+            return;
+        }
+
+        // Then check for blocking move (priority 2)
+        $blockMove = $this->findWinningMove('X');
+        if ($blockMove) {
+            $this->board[$blockMove['row']][$blockMove['col']] = 'O';
+            return;
+        }
+        
+        // If no immediate winning or blocking moves, use minimax
+        $bestScore = -INF;
+        $bestMove = null;
+        $secondBestMove = null;
+        
+        foreach ($this->getEmptyCells() as $cell) {
+            $row = $cell['row'];
+            $col = $cell['col'];
+            
+            // Try this move
+            $this->board[$row][$col] = 'O';
+            $score = $this->minimax(0, false, -INF, INF);
+            $this->board[$row][$col] = ''; // Undo the move
+            
+            if ($score > $bestScore) {
+                $secondBestMove = $bestMove;
+                $bestScore = $score;
+                $bestMove = ['row' => $row, 'col' => $col];
+            }
+        }
+        
+        // Add some randomness (20% chance to pick second-best move)
+        if ($secondBestMove !== null && rand(0, 100) < 20) {
+            $bestMove = $secondBestMove;
+        }
+        
+        // Execute the best move found
+        if ($bestMove !== null) {
+            $this->board[$bestMove['row']][$bestMove['col']] = 'O';
+        }
+    }
+
+    public function getEmptyCells()
     {
         $emptyCells = [];
         for ($row = 0; $row < 3; $row++) {
@@ -146,115 +243,7 @@ class TicTacToe extends Component
                 }
             }
         }
-        if (!empty($emptyCells)) {
-            $randomMove = $emptyCells[array_rand($emptyCells)];
-            $this->board[$randomMove['row']][$randomMove['col']] = 'O';
-        }
-    }
-
-    public function medium()
-    {
-        //cpu try to win
-        $winMove = $this->findWinningMove('O');
-        if (is_array($winMove) && isset($winMove['row'], $winMove['col'])) {
-            $this->board[$winMove['row']][$winMove['col']] = 'O';
-            return;
-        }
-
-        //block user's move
-
-        $blockMove = $this->findWinningMove('X');
-        if (is_array($blockMove) && isset($blockMove['row'], $blockMove['col'])) {
-            $this->board[$blockMove['row']][$blockMove['col']] = 'O';
-            return;
-        }
-
-        //take center if possible
-
-        if ($this->board[1][1] === '') {
-            $this->board[1][1] = 'O';
-            return;
-        }
-
-        //take corners 
-
-        $corners = [[0, 0], [0, 2], [2, 0], [2, 2]];
-        shuffle($corners);
-        foreach ($corners as $corner) {
-            if ($this->board[$corner[0]][$corner[1]] === '') {
-                $this->board[$corner[0]][$corner[1]] = 'O';
-                return;
-            }
-        }
-        // fallback to easy
-        $this->easy();
-    }
-
-    public function hard()
-    {
-        $bestScore = -INF;
-        $bestMove = null;
-        $secondBestMove = null;
-    
-        // Step 1: Check for immediate winning move (AI's turn)
-        foreach ($this->getEmptyCells() as $cell) {
-            $row = $cell['row'];
-            $col = $cell['col'];
-            $this->board[$row][$col] = 'O';
-            if ($this->checkGameStatus() === 10) { // AI wins
-                return $this->board[$row][$col] = 'O';
-            }
-            $this->board[$row][$col] = ''; // Undo
-        }
-    
-        // Step 2: Check for immediate blocking move (Player's turn)
-        foreach ($this->getEmptyCells() as $cell) {
-            $row = $cell['row'];
-            $col = $cell['col'];
-            $this->board[$row][$col] = 'X';
-            if ($this->checkGameStatus() === -10) { // Player would win
-                return $this->board[$row][$col] = 'O'; // BLOCK immediately
-            }
-            $this->board[$row][$col] = ''; // Undo
-        }
-    
-        // Step 3: Normal Minimax Evaluation
-        foreach ($this->getEmptyCells() as $cell) {
-            $row = $cell['row'];
-            $col = $cell['col'];
-            $this->board[$row][$col] = 'O';
-            $score = $this->minimax(0, false, -INF, INF);
-            $this->board[$row][$col] = '';
-    
-            if ($score > $bestScore) {
-                $secondBestMove = $bestMove;
-                $bestScore = $score;
-                $bestMove = ['row' => $row, 'col' => $col];
-            }
-        }
-    
-        // Step 4: Randomness (20% chance to pick second-best move)
-        if ($secondBestMove !== null && rand(0, 100) < 20) {
-            $bestMove = $secondBestMove;
-        }
-    
-        // Step 5: Execute the best move
-        if ($bestMove) {
-            $this->board[$bestMove['row']][$bestMove['col']] = 'O';
-        }
-    }
-    
-
-    public function getEmptyCells(){
-        $emptyCells=[];
-        for($row=0;$row<3;$row++){
-            for($col=0;$col<3;$col++){
-                if($this->board[$row][$col]===''){
-                    $emptyCells[]=['row'=>$row,'col'=>$col];
-                }
-            }
-        }
-        shuffle($emptyCells);
+        shuffle($emptyCells); // Randomize order for variety
         return $emptyCells;
     }
 
@@ -266,82 +255,11 @@ class TicTacToe extends Component
             return $this->evaluateBoard();
         }
 
-        //To check winner
-        $result = $this->checkGameStatus();
-
-        if ($result !== null) {
-            return $result;
-        }
-        // If it's the CPU's turn (maximizing player)
-        if ($isMaximizing) {
-            $bestScore = -INF; // Start with the worst possible score
-            //try every cell
-            for ($row = 0; $row < 3; $row++) {
-                for ($col = 0; $col < 3; $col++) {
-                    if ($this->board[$row][$col] === '') {
-                        $this->board[$row][$col] = 'O';
-                        // Ask: "If I make this move, what's the best the player can do?"
-                        $score = $this->minimax($depth + 1, false, $alpha, $beta);
-                        $this->board[$row][$col] = '';
-                        // keep the highest score
-                        $bestScore = max($score, $bestScore);
-                        $alpha = max($alpha, $bestScore);
-                        if ($beta <= $alpha) {
-                            break 2; // Prune the remaining branches
-                        }
-                    }
-                }
-            }
-            return $bestScore;
-        }
-        // If it's the player's turn (minimizing player)
-        else {
-            $bestScore = INF; // Start with the worst possible score
-
-            //try every possible cell
-
-            for ($row = 0; $row < 3; $row++) {
-                for ($col = 0; $col < 3; $col++) {
-                    if ($this->board[$row][$col] == '') {
-                        $this->board[$row][$col] = 'X';
-                        // Ask: "If the player makes this move, what's the best I can do?"
-                        $score = $this->minimax($depth + 1, true, $alpha, $beta);
-
-                        // Undo the move (reset the cell)
-                        $this->board[$row][$col] = '';
-
-                        // Keep the lowest score
-                        $bestScore = min($score, $bestScore);
-                        $beta = min($beta, $bestScore);
-                        if ($beta <= $alpha) {
-                            break 2;  // Prune the remaining branches
-                        }
-                    }
-                }
-            }
-            return $bestScore;
-        }
-    }
-
-    private function evaluateBoard(){
-        if($this->checkGameStatus()===10){
-            return 10;
-        }
-        if($this->checkGameStatus()===-10){
-            return -10;
-        }
-        return 0;
-    }
-
-    private function checkGameStatus()
-    {
-        if ($this->checkWinner('O')) {
-            return 10;
-        }
-        if ($this->checkWinner('X')) {
-            return -10;
-        }
-
+        // Terminal states
+        if ($this->checkWinner('O')) return 10 - $depth; // AI wins (prefer quicker wins)
+        if ($this->checkWinner('X')) return -10 + $depth; // Player wins (prefer later losses)
+        
+        // Check for draw
         $isDraw = true;
         for ($row = 0; $row < 3; $row++) {
             for ($col = 0; $col < 3; $col++) {
@@ -351,26 +269,156 @@ class TicTacToe extends Component
                 }
             }
         }
-        return $isDraw ? 0 : null;
+        if ($isDraw) return 0;
+
+        // Maximizing player (AI)
+        if ($isMaximizing) {
+            $bestScore = -INF;
+            for ($row = 0; $row < 3; $row++) {
+                for ($col = 0; $col < 3; $col++) {
+                    if ($this->board[$row][$col] === '') {
+                        $this->board[$row][$col] = 'O';
+                        $score = $this->minimax($depth + 1, false, $alpha, $beta);
+                        $this->board[$row][$col] = '';
+                        $bestScore = max($score, $bestScore);
+                        $alpha = max($alpha, $bestScore);
+                        if ($beta <= $alpha) {
+                            break 2; // Alpha-beta pruning
+                        }
+                    }
+                }
+            }
+            return $bestScore;
+        } 
+        // Minimizing player (human)
+        else {
+            $bestScore = INF;
+            for ($row = 0; $row < 3; $row++) {
+                for ($col = 0; $col < 3; $col++) {
+                    if ($this->board[$row][$col] === '') {
+                        $this->board[$row][$col] = 'X';
+                        $score = $this->minimax($depth + 1, true, $alpha, $beta);
+                        $this->board[$row][$col] = '';
+                        $bestScore = min($score, $bestScore);
+                        $beta = min($beta, $bestScore);
+                        if ($beta <= $alpha) {
+                            break 2; // Alpha-beta pruning
+                        }
+                    }
+                }
+            }
+            return $bestScore;
+        }
     }
 
+    private function evaluateBoard()
+    {
+        if ($this->checkWinner('O')) return 10;
+        if ($this->checkWinner('X')) return -10;
+        
+        // Check for draw
+        $isDraw = true;
+        for ($row = 0; $row < 3; $row++) {
+            for ($col = 0; $col < 3; $col++) {
+                if ($this->board[$row][$col] === '') {
+                    $isDraw = false;
+                    break 2;
+                }
+            }
+        }
+        
+        return $isDraw ? 0 : 0; // Return 0 for non-terminal states with no advantage
+    }
+    
+    private function checkGameStatus($evaluation = false)
+    {
+        // Skip if already evaluated
+        if ($this->gameOver && !$evaluation) {
+            return null;
+        }
+
+        // Only update session values when not in evaluation mode
+        if (!$evaluation) {
+            // Always refresh local properties from session first
+            $this->aiWins = (int)session('aiWins', 0);
+            $this->playerWins = (int)session('playerWins', 0);
+            $this->draws = (int)session('draws', 0);
+            $this->playerStreak = (int)session('playerStreak', 0);
+        }
+
+        // Check if O (AI) wins
+        if ($this->checkWinner('O')) {
+            if (!$evaluation) {
+                $this->aiWins += 1;
+                $this->playerStreak = 0;
+                session()->put('aiWins', $this->aiWins);
+                session()->put('playerStreak', 0);
+                $this->isWinner = 'O';
+                $this->gameOver = true;
+                $this->dispatch('gameUpdated');
+            }
+            return 10;
+        }
+
+        // Check if X (Player) wins
+        if ($this->checkWinner('X')) {
+            if (!$evaluation) {
+                $this->playerWins += 1;
+                $this->playerStreak += 1;
+                session()->put('playerWins', $this->playerWins);
+                session()->put('playerStreak', $this->playerStreak);
+                $this->isWinner = 'X';
+                $this->gameOver = true;
+                $this->dispatch('gameUpdated');
+            }
+            return -10;
+        }
+
+        // Check for draw
+        $isDraw = true;
+        for ($row = 0; $row < 3; $row++) {
+            for ($col = 0; $col < 3; $col++) {
+                if ($this->board[$row][$col] === '') {
+                    $isDraw = false;
+                    break 2;
+                }
+            }
+        }
+
+        if ($isDraw) {
+            if (!$evaluation) {
+                $this->draws += 1;
+                session()->put('draws', $this->draws);
+                $this->gameOver = true;
+                $this->isDraw = true;
+                $this->dispatch('gameUpdated');
+            }
+            return 0;
+        }
+
+        return null;
+    }
 
     public function findWinningMove($player)
     {
-        $winPattern = [
+        $winPatterns = [
+            // Rows
             [[0, 0], [0, 1], [0, 2]],
             [[1, 0], [1, 1], [1, 2]],
             [[2, 0], [2, 1], [2, 2]],
+            // Columns
             [[0, 0], [1, 0], [2, 0]],
             [[0, 1], [1, 1], [2, 1]],
             [[0, 2], [1, 2], [2, 2]],
+            // Diagonals
             [[0, 0], [1, 1], [2, 2]],
             [[0, 2], [1, 1], [2, 0]],
         ];
 
-        foreach ($winPattern as $pattern) {
+        foreach ($winPatterns as $pattern) {
             $playerCount = 0;
             $emptyCell = null;
+            
             foreach ($pattern as [$r, $c]) {
                 if ($this->board[$r][$c] === $player) {
                     $playerCount++;
@@ -378,62 +426,70 @@ class TicTacToe extends Component
                     $emptyCell = ['row' => $r, 'col' => $c];
                 }
             }
+            
             // If there are exactly 2 player marks and 1 empty cell, return the empty cell
             if ($playerCount === 2 && $emptyCell !== null) {
                 return $emptyCell;
             }
         }
+        
         return null;
     }
 
-
-
     public function checkWinner($specificPlayer = null)
     {
-        $winPattern = [
-            //check for rows
+        $winPatterns = [
+            // Rows
             [[0, 0], [0, 1], [0, 2]],
             [[1, 0], [1, 1], [1, 2]],
             [[2, 0], [2, 1], [2, 2]],
-
-            //check for cols
+            // Columns
             [[0, 0], [1, 0], [2, 0]],
             [[0, 1], [1, 1], [2, 1]],
             [[0, 2], [1, 2], [2, 2]],
-
-            //for diagonal
+            // Diagonals
             [[0, 0], [1, 1], [2, 2]],
             [[0, 2], [1, 1], [2, 0]],
         ];
 
-        //loop for each patterns
-
-        foreach ($winPattern as $pattern) {
+        foreach ($winPatterns as $pattern) {
             $values = [];
             foreach ($pattern as [$r, $c]) {
                 $values[] = $this->board[$r][$c];
             }
 
-            //final winner
             if ($values[0] !== '' && $values[0] === $values[1] && $values[1] === $values[2]) {
-                //Check if any cell is empty and match each cell to get the correct pattern of the winning line
                 $winner = $values[0];
+                
                 if ($specificPlayer !== null) {
-                    return $winner ===  $specificPlayer;
+                    return $winner === $specificPlayer;
                 }
-                $this->gameOver = true;
-                $this->isWinner = $winner;
+                
                 $this->winningLine = $pattern;
-
-
-                // sleep(2);
-                // $this->resetGame();
-                $this->dispatch('gameUpdated');
-                return;
+                return $winner;
             }
         }
+        
+        return false;
     }
 
+    public function resetScores()
+    {
+        // Reset session values
+        session()->put('playerWins', 0);
+        session()->put('aiWins', 0);
+        session()->put('draws', 0);
+        session()->put('playerStreak', 0);
+
+        // Reset component properties
+        $this->playerWins = 0;
+        $this->aiWins = 0;
+        $this->draws = 0;
+        $this->playerStreak = 0;
+
+        // Reset the game
+        $this->resetGame();
+    }
 
     public function render()
     {
