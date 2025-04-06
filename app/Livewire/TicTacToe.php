@@ -2,7 +2,10 @@
 
 namespace App\Livewire;
 
+use Illuminate\Support\Facades\Cache;
 use Livewire\Component;
+use Illuminate\Support\Str;
+use PhpParser\Node\Expr\Cast;
 
 class TicTacToe extends Component
 {
@@ -18,11 +21,24 @@ class TicTacToe extends Component
     public $isDraw = false;
     public $difficulty = null;
     public $gameMode = null;
-    protected $listeners = ['gameUpdated' => '$refresh'];
+    protected $listeners = ['gameUpdated' => '$refresh', 'gameCreated' => '$refresh'];
     public $playerWins, $aiWins, $draws, $playerStreak;
 
+    public $gameId = null;
+    public $joinGameId = null; 
+    public $isWaiting = false;
+    public $isHost = false;
+    public $lastUpdated=null;
+    public $lastPoll = null;
+    public $opponentActive = true;
+    protected $layout = 'components.layouts.app';
 
-    public function mount()
+     // Add this for real-time validation
+     protected $rules = [
+        'joinGameId' => 'required|string|min:8|max:8',
+    ];
+
+    public function mount($gameId=null)
     {
         // Initialize session values if they don't exist
         if (!session()->has('playerWins')) {
@@ -43,6 +59,11 @@ class TicTacToe extends Component
         $this->aiWins = (int)session('aiWins', 0);
         $this->draws = (int)session('draws', 0);
         $this->playerStreak = (int)session('playerStreak', 0);
+
+        if ($gameId) {
+            // $this->gameId = $gameId;
+            $this->joinGame($gameId);
+        }
     }
 
     public function resetGame()
@@ -63,6 +84,11 @@ class TicTacToe extends Component
 
         $this->difficulty = $currentDifficulty;
         $this->gameMode = $currentMode;
+
+         // If this is a multiplayer game, update the cache
+    if ($this->gameId) {
+        $this->updateGameCache();
+    }   
     }
 
     public function setGameMode($mode)
@@ -82,6 +108,70 @@ class TicTacToe extends Component
         }
     }
 
+    public function createMultiplayerGame()
+    {
+
+        // Generate a unique game ID\
+        $this->gameId = Str::random(8);
+        $this->isHost = true;
+        $this->isWaiting = true;
+        $this->lastUpdated = now();
+
+        // Initialize the game in cache
+        $this->updateGameCache();
+
+        $this->gameMode = 'multiplayer';
+        $this->dispatch('gameCreated', $this->gameId);
+    }
+
+    public function updateGameCache()
+    {
+        if (!$this->gameId) return;
+        
+        Cache::put('tictactoe_' . $this->gameId, [
+            'board' => $this->board,
+            'currentPlayer' => $this->currentPlayer,
+            'isWinner' => $this->isWinner,
+            'gameOver' => $this->gameOver,
+            'isDraw' => $this->isDraw,
+            'isWaiting' => $this->isWaiting ?? false,
+            'winningLine' => $this->winningLine,
+            'lastUpdated' => now(),
+            'hostLastActive' => $this->isHost ? now() : (Cache::get('tictactoe_' . $this->gameId)['hostLastActive'] ?? now()),
+            'guestLastActive' => !$this->isHost ? now() : (Cache::get('tictactoe_' . $this->gameId)['guestLastActive'] ?? null),
+        ], now()->addHour());
+    }
+
+
+    // Add this method to join an existing game
+    public function joinGame($gameId)
+    {
+        $gameData = Cache::get('tictactoe_' . $gameId);
+        if (!$gameData) {
+            session()->flash('error', 'game not found or user failed to connecct');
+            return redirect()->route('tictactoe');
+        }
+
+        $this->gameId = $gameId;
+        $this->isHost = false;
+        $this->board = $gameData['board'];
+        $this->currentPlayer = $gameData['currentPlayer'];
+        $this->isWinner = $gameData['isWinner'];
+        $this->isDraw = $gameData['isDraw'];
+        $this->winningLine = $gameData['winningLine'];
+        $this->gameOver = $gameData['gameOver'];
+        $this->gameMode = 'multiplayer';
+        $this->lastUpdated = $gameData['lastUpdated'];
+
+        // Mark game as joined by second player
+        if ($gameData['isWaiting'] ?? true) {
+            $gameData['isWaiting'] = false;
+            Cache::put('tictactoe_' . $this->gameId, $gameData, now()->addHour());
+        }
+    }
+
+  
+
     public function makeMove($row, $col)
     {
         // Don't allow moves if game is over or cell is already filled
@@ -89,22 +179,45 @@ class TicTacToe extends Component
             return;
         }
 
+        //multiplayer mode
+
+        if ($this->gameId) {
+            $gameData = Cache::get('tictactoe_' . $this->gameId);
+
+            //Refresh local state with the lastest from cache
+
+            $this->board = $gameData['board'];
+            $this->currentPlayer = $gameData['currentPlayer'];
+            $this->gameOver = $gameData['gameOver'];
+
+            // Don't allow moves if game is over or cell is already filled
+            if ($this->gameOver || $this->board[$row][$col] !== '') {
+                return;
+            }
+
+            // Check if it's this player's turn
+            $playerSymbol=$this->isHost ?'X':'O';
+            if($this->currentPlayer !== $playerSymbol){
+                return;  //Not this player's turn
+            }
+        }
+
         // Player makes a move
         $this->board[$row][$col] = $this->currentPlayer;
 
         // Check if the game is over after player's move
         $this->checkGameStatus();
-        
+
         // If game is not over, process next steps
         if (!$this->gameOver) {
             if ($this->gameMode === 'cpu' && $this->difficulty) {
                 // In CPU mode, let AI make a move
                 $this->currentPlayer = 'O';
                 $this->cpuMove();
-                
+
                 // After AI moves, check game status again
                 $this->checkGameStatus();
-                
+
                 // Switch back to player X for next turn if game is still ongoing
                 if (!$this->gameOver) {
                     $this->currentPlayer = 'X';
@@ -113,17 +226,92 @@ class TicTacToe extends Component
                 // For multiplayer, just switch players
                 $this->currentPlayer = ($this->currentPlayer === 'X') ? 'O' : 'X';
             }
+        }   
+
+          if ($this->gameId) {
+            $this->updateGameCache();
+            $this->updatePlayerActivity();
         }
+
 
         $this->dispatch('gameUpdated');
     }
-    
+
+    public function updatePlayerActivity()
+    {
+        if (!$this->gameId) return;
+        
+        $gameData = Cache::get('tictactoe_' . $this->gameId);
+        if (!$gameData) return;
+        
+        if ($this->isHost) {
+            $gameData['hostLastActive'] = now();
+        } else {
+            $gameData['guestLastActive'] = now();
+        }
+        
+        Cache::put('tictactoe_' . $this->gameId, $gameData, now()->addHour());
+    }
+
+    public function refreshGameState()
+    {
+        if (!$this->gameId) return;
+        
+        $gameData = Cache::get('tictactoe_' . $this->gameId);
+        if (!$gameData) return;
+        
+        $this->board = $gameData['board'];
+        $this->currentPlayer = $gameData['currentPlayer'];
+        $this->isWinner = $gameData['isWinner'];
+        $this->isDraw = $gameData['isDraw'];
+        $this->winningLine = $gameData['winningLine'];
+        $this->gameOver = $gameData['gameOver'];
+        $this->isWaiting = $gameData['isWaiting'] ?? false;
+        $this->lastUpdated = $gameData['lastUpdated'];
+    }
+
+
+    public function pollGameState()
+    {
+        if (!$this->gameId) return;
+        
+        // Update player activity status
+        $this->updatePlayerActivity();
+        
+        // Get latest game data
+        $gameData = Cache::get('tictactoe_' . $this->gameId);
+        if (!$gameData) {
+            session()->flash('error', 'Game has expired or was ended by the other player');
+            return redirect()->route('tictactoe');
+        }
+
+        // Check opponent activity
+        $opponentLastActive = $this->isHost ? 
+            ($gameData['guestLastActive'] ?? null) : 
+            ($gameData['hostLastActive'] ?? now());
+            
+        // Set opponent as inactive if they haven't polled in 10 seconds
+        if ($opponentLastActive && now()->diffInSeconds($opponentLastActive) > 10) {
+            $this->opponentActive = false;
+        } else {
+            $this->opponentActive = true;
+        }
+
+        // Only update local state if remote state is newer
+        if ($gameData['lastUpdated'] > ($this->lastUpdated ?? now()->subMinutes(5))) {
+            $this->refreshGameState();
+        }
+        
+        $this->dispatch('gameUpdated');
+    }
+
+
     public function cpuMove()
     {
         if (!$this->difficulty || $this->gameOver) {
             return;
         }
-        
+
         switch ($this->difficulty) {
             case 'easy':
                 $this->makeEasyMove();
@@ -179,7 +367,7 @@ class TicTacToe extends Component
                 return;
             }
         }
-        
+
         // If no strategic move is available, make a random move
         $this->makeEasyMove();
     }
@@ -200,33 +388,33 @@ class TicTacToe extends Component
             $this->board[$blockMove['row']][$blockMove['col']] = 'O';
             return;
         }
-        
+
         // If no immediate winning or blocking moves, use minimax
         $bestScore = -INF;
         $bestMove = null;
         $secondBestMove = null;
-        
+
         foreach ($this->getEmptyCells() as $cell) {
             $row = $cell['row'];
             $col = $cell['col'];
-            
+
             // Try this move
             $this->board[$row][$col] = 'O';
             $score = $this->minimax(0, false, -INF, INF);
             $this->board[$row][$col] = ''; // Undo the move
-            
+
             if ($score > $bestScore) {
                 $secondBestMove = $bestMove;
                 $bestScore = $score;
                 $bestMove = ['row' => $row, 'col' => $col];
             }
         }
-        
+
         // Add some randomness (20% chance to pick second-best move)
         if ($secondBestMove !== null && rand(0, 100) < 20) {
             $bestMove = $secondBestMove;
         }
-        
+
         // Execute the best move found
         if ($bestMove !== null) {
             $this->board[$bestMove['row']][$bestMove['col']] = 'O';
@@ -249,7 +437,7 @@ class TicTacToe extends Component
 
     private function minimax($depth, $isMaximizing, $alpha, $beta)
     {
-        $max_depth = 3;
+        $max_depth = 6;
 
         if ($depth >= $max_depth) {
             return $this->evaluateBoard();
@@ -258,7 +446,7 @@ class TicTacToe extends Component
         // Terminal states
         if ($this->checkWinner('O')) return 10 - $depth; // AI wins (prefer quicker wins)
         if ($this->checkWinner('X')) return -10 + $depth; // Player wins (prefer later losses)
-        
+
         // Check for draw
         $isDraw = true;
         for ($row = 0; $row < 3; $row++) {
@@ -289,7 +477,7 @@ class TicTacToe extends Component
                 }
             }
             return $bestScore;
-        } 
+        }
         // Minimizing player (human)
         else {
             $bestScore = INF;
@@ -315,7 +503,7 @@ class TicTacToe extends Component
     {
         if ($this->checkWinner('O')) return 10;
         if ($this->checkWinner('X')) return -10;
-        
+
         // Check for draw
         $isDraw = true;
         for ($row = 0; $row < 3; $row++) {
@@ -326,10 +514,10 @@ class TicTacToe extends Component
                 }
             }
         }
-        
+
         return $isDraw ? 0 : 0; // Return 0 for non-terminal states with no advantage
     }
-    
+
     private function checkGameStatus($evaluation = false)
     {
         // Skip if already evaluated
@@ -418,7 +606,7 @@ class TicTacToe extends Component
         foreach ($winPatterns as $pattern) {
             $playerCount = 0;
             $emptyCell = null;
-            
+
             foreach ($pattern as [$r, $c]) {
                 if ($this->board[$r][$c] === $player) {
                     $playerCount++;
@@ -426,13 +614,13 @@ class TicTacToe extends Component
                     $emptyCell = ['row' => $r, 'col' => $c];
                 }
             }
-            
+
             // If there are exactly 2 player marks and 1 empty cell, return the empty cell
             if ($playerCount === 2 && $emptyCell !== null) {
                 return $emptyCell;
             }
         }
-        
+
         return null;
     }
 
@@ -460,16 +648,16 @@ class TicTacToe extends Component
 
             if ($values[0] !== '' && $values[0] === $values[1] && $values[1] === $values[2]) {
                 $winner = $values[0];
-                
+
                 if ($specificPlayer !== null) {
                     return $winner === $specificPlayer;
                 }
-                
+
                 $this->winningLine = $pattern;
                 return $winner;
             }
         }
-        
+
         return false;
     }
 

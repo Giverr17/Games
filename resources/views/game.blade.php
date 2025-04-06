@@ -8,7 +8,7 @@
 </head>
 <body class="bg-gray-100 py-10">
     <div class="container mx-auto">
-        @livewire('tic-tac-toe')
+        @livewire('tic-tac-toe',['gameId' => $gameId ?? null])
     </div>
     
     @livewireScripts
